@@ -64,16 +64,17 @@
     align-items: center;
     width: 100%;
     max-width: 420px;
-    padding: 24px 30px 10px;
+    padding: 24px 20px 10px;
   }
 
   .btn {
-    width: 78px;
-    height: 78px;
+    width: 72px;
+    height: 72px;
     border-radius: 50%;
     border: 1px solid #3a3a3c;
-    font-size: 16px;
+    font-size: 13px;
     font-weight: 500;
+    white-space: nowrap;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -82,10 +83,12 @@
     -webkit-appearance: none;
     appearance: none;
     outline: none;
+    transition: transform 0.08s ease-out, opacity 0.08s ease-out;
   }
 
-  .btn:active {
-    opacity: 0.7;
+  .btn.pressed {
+    opacity: 0.6;
+    transform: scale(0.93);
   }
 
   .btn.start {
@@ -106,6 +109,11 @@
 
   .btn:disabled {
     color: #48484a;
+  }
+
+  .btn.start:disabled,
+  .btn.stop:disabled {
+    opacity: 0.35;
   }
 
   .laps {
@@ -159,7 +167,8 @@
 
   <div class="controls">
     <button class="btn lap" id="lapBtn" disabled>ラップ</button>
-    <button class="btn start" id="startStopBtn">開始</button>
+    <button class="btn stop" id="stopBtn" disabled>停止</button>
+    <button class="btn start" id="startBtn">開始</button>
   </div>
 
   <div class="laps">
@@ -169,7 +178,8 @@
 <script>
 (function () {
   var timeEl = document.getElementById('time');
-  var startStopBtn = document.getElementById('startStopBtn');
+  var startBtn = document.getElementById('startBtn');
+  var stopBtn = document.getElementById('stopBtn');
   var lapBtn = document.getElementById('lapBtn');
   var lapList = document.getElementById('lapList');
 
@@ -249,12 +259,12 @@
   }
 
   function start() {
+    if (running) return;
     running = true;
     startTimestamp = Date.now();
 
-    startStopBtn.textContent = '停止';
-    startStopBtn.classList.remove('start');
-    startStopBtn.classList.add('stop');
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
     lapBtn.disabled = false;
     lapBtn.textContent = 'ラップ';
 
@@ -262,19 +272,20 @@
   }
 
   function stop() {
+    if (!running) return;
+    var elapsed = currentElapsed();
     running = false;
-    elapsedBeforeStart = currentElapsed();
+    elapsedBeforeStart = elapsed;
     if (rafId) cancelAnimationFrame(rafId);
     render();
 
-    startStopBtn.textContent = '開始';
-    startStopBtn.classList.remove('stop');
-    startStopBtn.classList.add('start');
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
     lapBtn.textContent = 'リセット';
   }
 
   function reset() {
-    running = false;
+    if (running) return;
     elapsedBeforeStart = 0;
     lastLapElapsed = 0;
     laps = [];
@@ -282,6 +293,8 @@
     render();
     renderLaps();
 
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
     lapBtn.disabled = true;
     lapBtn.textContent = 'ラップ';
   }
@@ -293,15 +306,49 @@
     renderLaps();
   }
 
-  startStopBtn.addEventListener('click', function () {
-    if (running) {
-      stop();
-    } else {
-      start();
-    }
-  });
+  // Fires the action only at the moment the finger/pointer is lifted,
+  // and only if it's still released inside the button (iOS "touch up inside").
+  function bindPressRelease(el, action) {
+    var pressing = false;
+    var suppressClick = false;
 
-  lapBtn.addEventListener('click', function () {
+    el.addEventListener('pointerdown', function () {
+      if (el.disabled) return;
+      pressing = true;
+      el.classList.add('pressed');
+    });
+
+    function release(e, insideOverride) {
+      if (!pressing) return;
+      pressing = false;
+      el.classList.remove('pressed');
+
+      var inside = insideOverride;
+      if (inside === undefined) {
+        var rect = el.getBoundingClientRect();
+        inside = e.clientX >= rect.left && e.clientX <= rect.right &&
+                 e.clientY >= rect.top && e.clientY <= rect.bottom;
+      }
+
+      if (inside && !el.disabled) {
+        suppressClick = true;
+        action();
+      }
+    }
+
+    el.addEventListener('pointerup', function (e) { release(e); });
+    el.addEventListener('pointercancel', function (e) { release(e, false); });
+
+    // Keyboard / assistive-tech activation still uses the native click event.
+    el.addEventListener('click', function () {
+      if (suppressClick) { suppressClick = false; return; }
+      if (!el.disabled) action();
+    });
+  }
+
+  bindPressRelease(startBtn, start);
+  bindPressRelease(stopBtn, stop);
+  bindPressRelease(lapBtn, function () {
     if (running) {
       addLap();
     } else {
