@@ -233,6 +233,14 @@
     resetBtn.disabled = true;
   }
 
+  // Restarts the count from zero without stopping the clock (button/wake
+  // lock state is untouched since running never changes).
+  function restart() {
+    if (!running) return;
+    elapsedBeforeStart = 0;
+    startTimestamp = Date.now();
+  }
+
   // Fires the action only at the moment the finger/pointer is lifted,
   // and only if it's still released inside the element (iOS "touch up inside").
   // stopPropagation keeps taps on the control buttons from also reaching the
@@ -283,16 +291,19 @@
   bindPressRelease(stopBtn, stop);
   bindPressRelease(resetBtn, reset);
 
-  // The whole screen doubles as a big Start/Reset target: Start while idle,
-  // Reset once a time is frozen. Stop always requires the dedicated button,
-  // so a stray tap during the show can't stop the clock.
+  // The whole screen doubles as a big Start/Reset/Restart target: Start
+  // while idle, Reset once a time is frozen, or restart from zero without
+  // stopping if the clock is already running. Stop always requires the
+  // dedicated button, so a stray tap during the show can't halt the clock.
   bindPressRelease(document.body, function () {
-    if (elapsedBeforeStart === 0) {
+    if (running) {
+      restart();
+    } else if (elapsedBeforeStart === 0) {
       start();
     } else {
       reset();
     }
-  }, function () { return running; });
+  });
 
   document.addEventListener('touchmove', function (e) {
     e.preventDefault();
