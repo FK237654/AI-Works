@@ -101,8 +101,7 @@
     color: #ff453a;
   }
 
-  .btn.reset,
-  .btn.lap {
+  .btn.reset {
     background: #1c1c1e;
     color: #fff;
   }
@@ -116,63 +115,32 @@
     opacity: 0.35;
   }
 
-  .laps {
-    width: 100%;
-    max-width: 420px;
-    flex: 1;
-    overflow-y: auto;
-    padding: 0 30px;
-    -webkit-overflow-scrolling: touch;
+  .wake-indicator {
+    position: fixed;
+    top: max(10px, env(safe-area-inset-top));
+    right: max(14px, env(safe-area-inset-right));
+    font-size: 11px;
+    color: #48484a;
+    letter-spacing: 0.02em;
   }
 
-  .laps ol {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-
-  .laps li {
-    display: flex;
-    justify-content: space-between;
-    padding: 14px 0;
-    border-bottom: 1px solid #38383a;
-    font-size: 17px;
-    font-variant-numeric: tabular-nums;
-    color: #fff;
-  }
-
-  .laps li.best {
+  .wake-indicator.active {
     color: #30d158;
-  }
-
-  .laps li.worst {
-    color: #ff453a;
-  }
-
-  .laps li .lap-num {
-    color: #8e8e93;
-  }
-
-  .laps li.best .lap-num,
-  .laps li.worst .lap-num {
-    color: inherit;
   }
 </style>
 </head>
 <body>
+
+  <div class="wake-indicator" id="wakeIndicator"></div>
 
   <div class="time-display">
     <div id="time">00:00<span class="ms">.00</span></div>
   </div>
 
   <div class="controls">
-    <button class="btn lap" id="lapBtn" disabled>ラップ</button>
+    <button class="btn reset" id="resetBtn" disabled>リセット</button>
     <button class="btn stop" id="stopBtn" disabled>停止</button>
     <button class="btn start" id="startBtn">開始</button>
-  </div>
-
-  <div class="laps">
-    <ol id="lapList" reversed></ol>
   </div>
 
 <script>
@@ -180,15 +148,13 @@
   var timeEl = document.getElementById('time');
   var startBtn = document.getElementById('startBtn');
   var stopBtn = document.getElementById('stopBtn');
-  var lapBtn = document.getElementById('lapBtn');
-  var lapList = document.getElementById('lapList');
+  var resetBtn = document.getElementById('resetBtn');
+  var wakeIndicator = document.getElementById('wakeIndicator');
 
   var running = false;
   var startTimestamp = 0;
   var elapsedBeforeStart = 0;
   var rafId = null;
-  var laps = [];
-  var lastLapElapsed = 0;
 
   function formatTime(ms) {
     var totalCentis = Math.floor(ms / 10);
@@ -226,38 +192,6 @@
     }
   }
 
-  function renderLaps() {
-    lapList.innerHTML = '';
-
-    var bestIdx = -1, worstIdx = -1;
-    if (laps.length > 1) {
-      var best = Infinity, worst = -Infinity;
-      for (var i = 0; i < laps.length; i++) {
-        if (laps[i].duration < best) { best = laps[i].duration; bestIdx = i; }
-        if (laps[i].duration > worst) { worst = laps[i].duration; worstIdx = i; }
-      }
-    }
-
-    for (var idx = laps.length - 1; idx >= 0; idx--) {
-      var lap = laps[idx];
-      var li = document.createElement('li');
-      if (idx === bestIdx) li.className = 'best';
-      else if (idx === worstIdx) li.className = 'worst';
-
-      var numSpan = document.createElement('span');
-      numSpan.className = 'lap-num';
-      numSpan.textContent = 'ラップ ' + (idx + 1);
-
-      var fDur = formatTime(lap.duration);
-      var timeSpan = document.createElement('span');
-      timeSpan.textContent = fDur.main + '.' + fDur.centis;
-
-      li.appendChild(numSpan);
-      li.appendChild(timeSpan);
-      lapList.appendChild(li);
-    }
-  }
-
   function start() {
     if (running) return;
     running = true;
@@ -265,8 +199,7 @@
 
     startBtn.disabled = true;
     stopBtn.disabled = false;
-    lapBtn.disabled = false;
-    lapBtn.textContent = 'ラップ';
+    resetBtn.disabled = true;
 
     rafId = requestAnimationFrame(tick);
   }
@@ -281,29 +214,18 @@
 
     startBtn.disabled = false;
     stopBtn.disabled = true;
-    lapBtn.textContent = 'リセット';
+    resetBtn.disabled = false;
   }
 
   function reset() {
     if (running) return;
     elapsedBeforeStart = 0;
-    lastLapElapsed = 0;
-    laps = [];
     if (rafId) cancelAnimationFrame(rafId);
     render();
-    renderLaps();
 
     startBtn.disabled = false;
     stopBtn.disabled = true;
-    lapBtn.disabled = true;
-    lapBtn.textContent = 'ラップ';
-  }
-
-  function addLap() {
-    var elapsed = currentElapsed();
-    laps.push({ duration: elapsed - lastLapElapsed, total: elapsed });
-    lastLapElapsed = elapsed;
-    renderLaps();
+    resetBtn.disabled = true;
   }
 
   // Fires the action only at the moment the finger/pointer is lifted,
@@ -348,18 +270,40 @@
 
   bindPressRelease(startBtn, start);
   bindPressRelease(stopBtn, stop);
-  bindPressRelease(lapBtn, function () {
-    if (running) {
-      addLap();
-    } else {
-      reset();
-    }
-  });
+  bindPressRelease(resetBtn, reset);
 
   document.addEventListener('touchmove', function (e) {
     e.preventDefault();
   }, { passive: false });
 
+  // Keep the screen from auto-locking during a show (requires iOS 16.4+ Safari).
+  var wakeLock = null;
+
+  function requestWakeLock() {
+    if (!('wakeLock' in navigator)) {
+      wakeIndicator.textContent = '';
+      return;
+    }
+    navigator.wakeLock.request('screen').then(function (lock) {
+      wakeLock = lock;
+      wakeIndicator.textContent = 'スリープ防止 ON';
+      wakeIndicator.classList.add('active');
+      wakeLock.addEventListener('release', function () {
+        wakeIndicator.classList.remove('active');
+        wakeIndicator.textContent = 'スリープ防止 OFF';
+      });
+    }).catch(function () {
+      wakeIndicator.textContent = '';
+    });
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') {
+      requestWakeLock();
+    }
+  });
+
+  requestWakeLock();
   render();
 })();
 </script>
