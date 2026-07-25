@@ -51,6 +51,7 @@
     letter-spacing: -2px;
     line-height: 1;
     text-align: center;
+    transition: opacity 0.08s ease-out;
   }
 
   #time .ms {
@@ -126,6 +127,10 @@
 
   .wake-indicator.active {
     color: #30d158;
+  }
+
+  body.pressed #time {
+    opacity: 0.4;
   }
 </style>
 </head>
@@ -212,7 +217,7 @@
     if (rafId) cancelAnimationFrame(rafId);
     render();
 
-    startBtn.disabled = false;
+    startBtn.disabled = true;
     stopBtn.disabled = true;
     resetBtn.disabled = false;
   }
@@ -229,18 +234,23 @@
   }
 
   // Fires the action only at the moment the finger/pointer is lifted,
-  // and only if it's still released inside the button (iOS "touch up inside").
-  function bindPressRelease(el, action) {
+  // and only if it's still released inside the element (iOS "touch up inside").
+  // stopPropagation keeps taps on the control buttons from also reaching the
+  // full-screen tap handler bound on <body>.
+  function bindPressRelease(el, action, isDisabled) {
+    isDisabled = isDisabled || function () { return el.disabled === true; };
     var pressing = false;
     var suppressClick = false;
 
-    el.addEventListener('pointerdown', function () {
-      if (el.disabled) return;
+    el.addEventListener('pointerdown', function (e) {
+      e.stopPropagation();
+      if (isDisabled()) return;
       pressing = true;
       el.classList.add('pressed');
     });
 
     function release(e, insideOverride) {
+      e.stopPropagation();
       if (!pressing) return;
       pressing = false;
       el.classList.remove('pressed');
@@ -252,7 +262,7 @@
                  e.clientY >= rect.top && e.clientY <= rect.bottom;
       }
 
-      if (inside && !el.disabled) {
+      if (inside && !isDisabled()) {
         suppressClick = true;
         action();
       }
@@ -262,15 +272,27 @@
     el.addEventListener('pointercancel', function (e) { release(e, false); });
 
     // Keyboard / assistive-tech activation still uses the native click event.
-    el.addEventListener('click', function () {
+    el.addEventListener('click', function (e) {
+      e.stopPropagation();
       if (suppressClick) { suppressClick = false; return; }
-      if (!el.disabled) action();
+      if (!isDisabled()) action();
     });
   }
 
   bindPressRelease(startBtn, start);
   bindPressRelease(stopBtn, stop);
   bindPressRelease(resetBtn, reset);
+
+  // The whole screen doubles as a big Start/Reset target: Start while idle,
+  // Reset once a time is frozen. Stop always requires the dedicated button,
+  // so a stray tap during the show can't stop the clock.
+  bindPressRelease(document.body, function () {
+    if (elapsedBeforeStart === 0) {
+      start();
+    } else {
+      reset();
+    }
+  }, function () { return running; });
 
   document.addEventListener('touchmove', function (e) {
     e.preventDefault();
