@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ストップウォッチ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ストップウォッチ">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #000;
+    color: #fff;
+    font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    overscroll-behavior: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  .time-display {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+  }
+
+  #time {
+    font-variant-numeric: tabular-nums;
+    font-size: 17vw;
+    font-weight: 200;
+    letter-spacing: -2px;
+    line-height: 1;
+    text-align: center;
+  }
+
+  #time .ms {
+    font-size: 0.5em;
+    color: #8e8e93;
+  }
+
+  .controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    max-width: 420px;
+    padding: 24px 30px 10px;
+  }
+
+  .btn {
+    width: 78px;
+    height: 78px;
+    border-radius: 50%;
+    border: 1px solid #3a3a3c;
+    font-size: 16px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #1c1c1e;
+    color: #fff;
+    -webkit-appearance: none;
+    appearance: none;
+    outline: none;
+  }
+
+  .btn:active {
+    opacity: 0.7;
+  }
+
+  .btn.start {
+    background: rgba(48, 209, 88, 0.16);
+    color: #30d158;
+  }
+
+  .btn.stop {
+    background: rgba(255, 69, 58, 0.16);
+    color: #ff453a;
+  }
+
+  .btn.reset,
+  .btn.lap {
+    background: #1c1c1e;
+    color: #fff;
+  }
+
+  .btn:disabled {
+    color: #48484a;
+  }
+
+  .laps {
+    width: 100%;
+    max-width: 420px;
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 30px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .laps ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .laps li {
+    display: flex;
+    justify-content: space-between;
+    padding: 14px 0;
+    border-bottom: 1px solid #38383a;
+    font-size: 17px;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+  }
+
+  .laps li.best {
+    color: #30d158;
+  }
+
+  .laps li.worst {
+    color: #ff453a;
+  }
+
+  .laps li .lap-num {
+    color: #8e8e93;
+  }
+
+  .laps li.best .lap-num,
+  .laps li.worst .lap-num {
+    color: inherit;
+  }
+</style>
+</head>
+<body>
+
+  <div class="time-display">
+    <div id="time">00:00<span class="ms">.00</span></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn lap" id="lapBtn" disabled>ラップ</button>
+    <button class="btn start" id="startStopBtn">開始</button>
+  </div>
+
+  <div class="laps">
+    <ol id="lapList" reversed></ol>
+  </div>
+
+<script>
+(function () {
+  var timeEl = document.getElementById('time');
+  var startStopBtn = document.getElementById('startStopBtn');
+  var lapBtn = document.getElementById('lapBtn');
+  var lapList = document.getElementById('lapList');
+
+  var running = false;
+  var startTimestamp = 0;
+  var elapsedBeforeStart = 0;
+  var rafId = null;
+  var laps = [];
+  var lastLapElapsed = 0;
+
+  function formatTime(ms) {
+    var totalCentis = Math.floor(ms / 10);
+    var centis = totalCentis % 100;
+    var totalSeconds = Math.floor(totalCentis / 100);
+    var seconds = totalSeconds % 60;
+    var totalMinutes = Math.floor(totalSeconds / 60);
+    var minutes = totalMinutes % 60;
+    var hours = Math.floor(totalMinutes / 60);
+
+    var pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
+
+    var main = hours > 0
+      ? pad2(hours) + ':' + pad2(minutes) + ':' + pad2(seconds)
+      : pad2(minutes) + ':' + pad2(seconds);
+
+    return { main: main, centis: pad2(centis) };
+  }
+
+  function currentElapsed() {
+    if (!running) return elapsedBeforeStart;
+    return elapsedBeforeStart + (Date.now() - startTimestamp);
+  }
+
+  function render() {
+    var elapsed = currentElapsed();
+    var f = formatTime(elapsed);
+    timeEl.innerHTML = f.main + '<span class="ms">.' + f.centis + '</span>';
+  }
+
+  function tick() {
+    render();
+    if (running) {
+      rafId = requestAnimationFrame(tick);
+    }
+  }
+
+  function renderLaps() {
+    lapList.innerHTML = '';
+
+    var bestIdx = -1, worstIdx = -1;
+    if (laps.length > 1) {
+      var best = Infinity, worst = -Infinity;
+      for (var i = 0; i < laps.length; i++) {
+        if (laps[i].duration < best) { best = laps[i].duration; bestIdx = i; }
+        if (laps[i].duration > worst) { worst = laps[i].duration; worstIdx = i; }
+      }
+    }
+
+    for (var idx = laps.length - 1; idx >= 0; idx--) {
+      var lap = laps[idx];
+      var li = document.createElement('li');
+      if (idx === bestIdx) li.className = 'best';
+      else if (idx === worstIdx) li.className = 'worst';
+
+      var numSpan = document.createElement('span');
+      numSpan.className = 'lap-num';
+      numSpan.textContent = 'ラップ ' + (idx + 1);
+
+      var fDur = formatTime(lap.duration);
+      var timeSpan = document.createElement('span');
+      timeSpan.textContent = fDur.main + '.' + fDur.centis;
+
+      li.appendChild(numSpan);
+      li.appendChild(timeSpan);
+      lapList.appendChild(li);
+    }
+  }
+
+  function start() {
+    running = true;
+    startTimestamp = Date.now();
+
+    startStopBtn.textContent = '停止';
+    startStopBtn.classList.remove('start');
+    startStopBtn.classList.add('stop');
+    lapBtn.disabled = false;
+    lapBtn.textContent = 'ラップ';
+
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function stop() {
+    running = false;
+    elapsedBeforeStart = currentElapsed();
+    if (rafId) cancelAnimationFrame(rafId);
+    render();
+
+    startStopBtn.textContent = '開始';
+    startStopBtn.classList.remove('stop');
+    startStopBtn.classList.add('start');
+    lapBtn.textContent = 'リセット';
+  }
+
+  function reset() {
+    running = false;
+    elapsedBeforeStart = 0;
+    lastLapElapsed = 0;
+    laps = [];
+    if (rafId) cancelAnimationFrame(rafId);
+    render();
+    renderLaps();
+
+    lapBtn.disabled = true;
+    lapBtn.textContent = 'ラップ';
+  }
+
+  function addLap() {
+    var elapsed = currentElapsed();
+    laps.push({ duration: elapsed - lastLapElapsed, total: elapsed });
+    lastLapElapsed = elapsed;
+    renderLaps();
+  }
+
+  startStopBtn.addEventListener('click', function () {
+    if (running) {
+      stop();
+    } else {
+      start();
+    }
+  });
+
+  lapBtn.addEventListener('click', function () {
+    if (running) {
+      addLap();
+    } else {
+      reset();
+    }
+  });
+
+  document.addEventListener('touchmove', function (e) {
+    e.preventDefault();
+  }, { passive: false });
+
+  render();
+})();
+</script>
+</body>
+</html>
